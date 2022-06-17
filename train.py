@@ -43,11 +43,11 @@ def train(
     # Split into train and val
     train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
     
-    val_size = int(val_size/2)
-    test_size = len(val_dataset) - val_size
+    test_size = int(val_size/2)
+    val_size -= test_size
 
     # Split into val and test
-    val_dataset, test_dataset = torch.utils.data.random_split(dataset, [val_size, test_size])
+    val_dataset, test_dataset = torch.utils.data.random_split(val_dataset, [val_size, test_size])
 
     # Split val and test
     val_dataset, test_dataset = train_test_split(val_dataset, test_size=0.5)
