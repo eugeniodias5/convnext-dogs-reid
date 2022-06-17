@@ -9,7 +9,9 @@ import torchvision
 
 from YTDataset import YTDataset
 
-def train(batch_size, num_classes=600, train_split=0.7, epochs=10, lr=1e-4, max_imgs_per_class=10):
+def train(batch_size, num_classes=600, train_split=0.7, epochs=10, lr=1e-4, device="cpu", max_imgs_per_class=10):
+    device = torch.device(device if torch.cuda.is_available() else "cpu")
+
     # Create transformer
     transform = torchvision.transforms.Compose([
         torchvision.transforms.Resize((230, 230)),
@@ -33,7 +35,7 @@ def train(batch_size, num_classes=600, train_split=0.7, epochs=10, lr=1e-4, max_
     test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
 
     # Create a model
-    model = torchvision.models.convnext_base(pretrained=True)
+    model = torchvision.models.convnext_base(pretrained=True).cuda(device=device)
     model.classifier[2] = nn.Linear(in_features=model.classifier[2].in_features, out_features=num_classes)
 
     # Create an optimizer
@@ -46,9 +48,9 @@ def train(batch_size, num_classes=600, train_split=0.7, epochs=10, lr=1e-4, max_
     for epoch in range(epochs):
         for i, (label, anchor, positive, negative) in enumerate(train_loader):
             # Move to GPU
-            anchor = anchor.cuda()
-            positive = positive.cuda()
-            negative = negative.cuda()
+            anchor = anchor.cuda(device=device)
+            positive = positive.cuda(device=device)
+            negative = negative.cuda(device=device)
 
             # Zero the gradients
             optimizer.zero_grad()
@@ -72,6 +74,7 @@ def train(batch_size, num_classes=600, train_split=0.7, epochs=10, lr=1e-4, max_
 
         # Running validation to get accuracy
         with torch.no_grad():
+            total_loss = 0
             correct = 0
             total = 0
             for i, (label, anchor, positive, negative) in enumerate(val_loader):
@@ -85,6 +88,9 @@ def train(batch_size, num_classes=600, train_split=0.7, epochs=10, lr=1e-4, max_
                 positive = model(positive)
                 negative = model(negative)
 
+                loss_value = loss(anchor, positive, negative)
+                total_loss += loss_value.item()
+
                 # Get the predicted class using a softmax function
                 anchor_pred = F.softmax(anchor, dim=1)
                 
@@ -95,8 +101,39 @@ def train(batch_size, num_classes=600, train_split=0.7, epochs=10, lr=1e-4, max_
                 correct += (predicted == label).sum().item()
 
             # Print the accuracy
-            print('Epoch: {}, Accuracy: {}'.format(epoch, correct / total))
+            print('Epoch: {}, Val_Accuracy: {}, Test_Loss: {}'.format(epoch, correct / total, total_loss / total))
 
+    # Running at the end test to get accuracy
+    with torch.no_grad():
+        total_loss = 0
+        correct = 0
+        total = 0
+
+        for i, (label, anchor, positive, negative) in enumerate(test_loader):
+            # Move to GPU
+            anchor = anchor.cuda()
+            positive = positive.cuda()
+            negative = negative.cuda()
+
+            # Forward pass
+            anchor = model(anchor)
+            positive = model(positive)
+            negative = model(negative)
+
+            loss_value = loss(anchor, positive, negative)
+            total_loss += loss_value.item()
+
+            # Get the predicted class using a softmax function
+            anchor_pred = F.softmax(anchor, dim=1)
+            
+            _, predicted = torch.max(anchor_pred.data, 1)
+
+            # Get the correct class
+            total += label.size(0)
+            correct += (predicted == label).sum().item()
+
+        # Print the accuracy
+        print('Test_Accuracy: {}, Test_Loss: {}'.format(correct / total, total_loss / total))
 
 if __name__ == '__main__':
     model = torchvision.models.convnext_small(pretrained=True)
