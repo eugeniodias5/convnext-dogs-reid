@@ -1,3 +1,5 @@
+from csv import writer
+
 import torch
 from torch import optim, nn
 import torch.nn.functional as F
@@ -8,14 +10,20 @@ import torchvision
 
 from YTDataset import YTDataset
 
+def write_csv_row(file, row=[]):
+    with open(file, 'a', newline='') as csv_obj:
+        row_writer = writer(csv_obj)
+        row_writer.writerow(row)
+
+        csv_obj.close()
 
 def train(
     batch_size,
     dataset_path="yt_db",
-    num_classes=600,
+    num_classes=9690,
     train_split=0.7,
     epochs=10,
-    lr=1e-4,
+    lr=1e-5,
     device="cpu",
     max_imgs_per_class=10,
 ):
@@ -86,6 +94,9 @@ def train(
     )
 
     print("Starting training...")
+
+    write_csv_row("results.csv", ["stage", "epoch", "loss", "accuraccy"])
+   
     # Train the model
     for epoch in range(epochs):
         for i, (label, anchor, positive, negative) in enumerate(train_loader):
@@ -117,6 +128,8 @@ def train(
                         epoch, i, loss_value.item()
                     )
                 )
+                write_csv_row("results.csv", ["train", epoch, loss_value.item(), ""])
+
         
         # Running validation to get accuracy
         with torch.no_grad():
@@ -146,15 +159,19 @@ def train(
                 total += label.size(0)
                 correct += (predicted == label).sum().item()
 
+            accuracy = correct / total
+            loss = total_loss / total
             # Print the accuracy
             print(
                 "Epoch: {}, Val_Accuracy: {}, Test_Loss: {}".format(
-                    epoch, correct / total, total_loss / total
+                    epoch, accuracy, loss
                 )
             )
-        
+
+            # Writing to a csv
+            write_csv_row("results.csv", ["validation", epoch, loss_value.item(), accuracy])
     
-    # Running at the end test to get accuracy
+    # Running the test at the end to get the accuracy
     with torch.no_grad():
         total_loss = 0
         correct = 0
@@ -183,16 +200,20 @@ def train(
             total += label.size(0)
             correct += (predicted == label).sum().item()
 
+        accuracy = correct / total
+        loss = total_loss / total
         # Print the accuracy
         print(
             "Test_Accuracy: {}, Test_Loss: {}".format(
-                correct / total, total_loss / total
+                accuracy, loss
             )
         )
 
+        # Writing to a csv
+        write_csv_row("results.csv", ["train", "", loss_value.item(), accuracy])
+
         torch.save(model.state_dict(), "./")
     
-
 if __name__ == "__main__":
     train(
         batch_size=4,
