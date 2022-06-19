@@ -5,7 +5,7 @@ from PIL import Image
 from torch.utils.data import Dataset
 
 
-class YTDataset(Dataset):
+class YtDataset(Dataset):
     def __init__(self, path, transform=None, max_imgs_per_class=10, min_imgs_per_class=5):
         self.path = path
         self.transform = transform
@@ -81,4 +81,4 @@ class YTDataset(Dataset):
                 self.transform(negative),
             )
 
-        return dog["label"], anchor, positive, negative
+        return anchor, positive, negative

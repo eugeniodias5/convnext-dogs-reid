@@ -1,14 +1,13 @@
 from csv import writer
 
 import torch
-from torch import optim, nn
-import torch.nn.functional as F
 
-from sklearn.model_selection import train_test_split
+from pytorch_lightning.trainer import Trainer
+from pytorch_lightning.loggers import CSVLogger
+from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 
-import torchvision
-
-from YTDataset import YTDataset
+from YtDataModule import YtDataModule
+from ConvNext import ConvNext
 
 def write_csv_row(file, row=[]):
     with open(file, 'a', newline='') as csv_obj:
@@ -20,208 +19,38 @@ def write_csv_row(file, row=[]):
 def train(
     batch_size,
     dataset_path="yt_db",
-    num_classes=9690,
     train_split=0.7,
     epochs=10,
     lr=1e-5,
     device="cpu",
+    devices=[1],
     max_imgs_per_class=10,
 ):
-    device = torch.device(device if torch.cuda.is_available() else "cpu")
+    ytDataModule = YtDataModule(data_dir=dataset_path, train_split=train_split, batch_size=batch_size, max_imgs_per_class=max_imgs_per_class)
+    convNext = ConvNext(lr=lr)
 
-    # Create transformer
-    transform = torchvision.transforms.Compose(
-        [
-            torchvision.transforms.Resize((230, 230)),
-            torchvision.transforms.CenterCrop((224, 224)),
-            torchvision.transforms.ToTensor(),
-            torchvision.transforms.Normalize(
-                mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
-            ),
-        ]
-    )
+    logger = CSVLogger("logs", name="csv_logs")
 
-    print("Collecting the dataset...")
-    # Create a dataset
-    dataset = YTDataset(dataset_path, transform=transform, max_imgs_per_class=max_imgs_per_class)
-    
-    train_size = int(0.8 * len(dataset))
-    val_size = len(dataset) - train_size
+    callbacks = [EarlyStopping(monitor="loss")]
 
-    # Split into train and val
-    train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
-    
-    test_size = int(val_size/2)
-    val_size -= test_size
+    if torch.cuda.device_count() == 0:
+        device = "cpu"
+        devices = None
 
-    # Split into val and test
-    val_dataset, test_dataset = torch.utils.data.random_split(val_dataset, [val_size, test_size])
+    trainer = Trainer(logger=logger, max_epochs=epochs, accelerator=device,
+                      devices=devices, callbacks=callbacks)
 
-    # Split val and test
-    val_dataset, test_dataset = train_test_split(val_dataset, test_size=0.5)
-
-    # Create a dataloader for train and val
-    train_loader = torch.utils.data.DataLoader(
-        train_dataset, batch_size=batch_size, shuffle=True
-    )
-    val_loader = torch.utils.data.DataLoader(
-        val_dataset, batch_size=batch_size, shuffle=True
-    )
-    test_loader = torch.utils.data.DataLoader(
-        test_dataset, batch_size=batch_size, shuffle=True
-    )
-    
-    train_loader = torch.utils.data.DataLoader(
-        dataset, batch_size=batch_size, shuffle=True
-    )
-
-
-    # Create a model
-    model = torchvision.models.convnext_base(pretrained=True)
-
-    model.classifier[2] = nn.Linear(
-        in_features=model.classifier[2].in_features, out_features=num_classes
-    )
-
-    model = model.cuda(device=device)
-
-    # Create an optimizer
-    optimizer = optim.AdamW(model.parameters(), lr=lr)
-
-    # Create a triplet loss function using cosine similarity
-    loss = nn.TripletMarginWithDistanceLoss(
-        distance_function=lambda x, y: 1 - F.cosine_similarity(x, y)
-    )
-
-    print("Starting training...")
-
-    write_csv_row("results.csv", ["stage", "epoch", "loss", "accuraccy"])
-   
-    # Train the model
-    for epoch in range(epochs):
-        for i, (label, anchor, positive, negative) in enumerate(train_loader):
-            # Move to GPU
-            anchor = anchor.to(device=device)
-            positive = positive.to(device=device)
-            negative = negative.to(device=device)
-
-            # Zero the gradients
-            optimizer.zero_grad()
-
-            # Forward pass
-            anchor = model(anchor)
-            positive = model(positive)
-            negative = model(negative)
-
-            loss_value = loss(anchor, positive, negative)
-
-            # Backward pass
-            loss_value.backward()
-
-            # Update the weights
-            optimizer.step()
-
-            # Print the loss
-            if i % 1000 == 0:
-                print(
-                    "Epoch: {}, Iteration: {}, Loss: {}".format(
-                        epoch, i, loss_value.item()
-                    )
-                )
-                write_csv_row("results.csv", ["train", epoch, loss_value.item(), ""])
-
-        
-        # Running validation to get accuracy
-        with torch.no_grad():
-            total_loss = 0
-            correct = 0
-            total = 0
-            for i, (label, anchor, positive, negative) in enumerate(val_loader):
-                # Move to GPU
-                anchor = anchor.cuda()
-                positive = positive.cuda()
-                negative = negative.cuda()
-
-                # Forward pass
-                anchor = model(anchor)
-                positive = model(positive)
-                negative = model(negative)
-
-                loss_value = loss(anchor, positive, negative)
-                total_loss += loss_value.item()
-
-                # Get the predicted class using a softmax function
-                anchor_pred = F.softmax(anchor, dim=1)
-
-                _, predicted = torch.max(anchor_pred.data, 1)
-
-                # Get the correct class
-                total += label.size(0)
-                correct += (predicted == label).sum().item()
-
-            accuracy = correct / total
-            loss = total_loss / total
-            # Print the accuracy
-            print(
-                "Epoch: {}, Val_Accuracy: {}, Test_Loss: {}".format(
-                    epoch, accuracy, loss
-                )
-            )
-
-            # Writing to a csv
-            write_csv_row("results.csv", ["validation", epoch, loss_value.item(), accuracy])
-    
-    # Running the test at the end to get the accuracy
-    with torch.no_grad():
-        total_loss = 0
-        correct = 0
-        total = 0
-
-        for i, (label, anchor, positive, negative) in enumerate(test_loader):
-            # Move to GPU
-            anchor = anchor.cuda()
-            positive = positive.cuda()
-            negative = negative.cuda()
-
-            # Forward pass
-            anchor = model(anchor)
-            positive = model(positive)
-            negative = model(negative)
-
-            loss_value = loss(anchor, positive, negative)
-            total_loss += loss_value.item()
-
-            # Get the predicted class using a softmax function
-            anchor_pred = F.softmax(anchor, dim=1)
-
-            _, predicted = torch.max(anchor_pred.data, 1)
-
-            # Get the correct class
-            total += label.size(0)
-            correct += (predicted == label).sum().item()
-
-        accuracy = correct / total
-        loss = total_loss / total
-        # Print the accuracy
-        print(
-            "Test_Accuracy: {}, Test_Loss: {}".format(
-                accuracy, loss
-            )
-        )
-
-        # Writing to a csv
-        write_csv_row("results.csv", ["train", "", loss_value.item(), accuracy])
-
-        torch.save(model.state_dict(), "./")
+    trainer.fit(convNext, ytDataModule)
+    trainer.test(convNext, ytDataModule)
     
 if __name__ == "__main__":
     train(
         batch_size=4,
         dataset_path="../../yt_db",
-        num_classes=6900,
         train_split=0.7,
         epochs=5,
         lr=1e-4,
-        device="cuda:1",
+        device="gpu",
+        devices=[0],
         max_imgs_per_class=10,
     )
