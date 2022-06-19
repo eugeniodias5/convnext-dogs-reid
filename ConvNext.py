@@ -24,7 +24,9 @@ class ConvNext(pl.LightningModule):
 
     def configure_optimizers(self):
         optimizer = optim.AdamW(self.model.parameters(), lr=self.lr)
-        lr_sched = optim.lr_scheduler.StepLR(optimizer, step_size=self.lr_sched_step, gamma=self.lr_sched_gamma)
+        lr_sched = optim.lr_scheduler.StepLR(
+            optimizer, step_size=self.lr_sched_step, gamma=self.lr_sched_gamma
+        )
 
         return [optimizer], [lr_sched]
 

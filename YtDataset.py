@@ -6,7 +6,9 @@ from torch.utils.data import Dataset
 
 
 class YtDataset(Dataset):
-    def __init__(self, path, transform=None, max_imgs_per_class=10, min_imgs_per_class=5):
+    def __init__(
+        self, path, transform=None, max_imgs_per_class=10, min_imgs_per_class=5
+    ):
         self.path = path
         self.transform = transform
         self.max_imgs_per_class = max_imgs_per_class
@@ -14,18 +16,16 @@ class YtDataset(Dataset):
 
         # Going through the database
         for race in os.listdir(path):
-            print(f"Composing race {race}")
             race_path = os.path.join(path, race)
             num_race_dogs = len(os.listdir(race_path))
             # If there is only one individual from a race, it's not possible to
             # do triplet loss with another individual
             if num_race_dogs <= 1:
-                print(f"Jumping race {race}")
                 continue
 
             for label in os.listdir(race_path):
                 label_path = os.path.join(race_path, label)
-                
+
                 dogs = os.listdir(label_path)
                 if len(dogs) < min_imgs_per_class:
                     continue
@@ -45,8 +45,11 @@ class YtDataset(Dataset):
                     while 1:
                         neg_label = random.choice(os.listdir(race_path))
 
-                        if neg_label != label and len(os.listdir(os.path.join(race_path, neg_label))) > 1:
-                            break 
+                        if (
+                            neg_label != label
+                            and len(os.listdir(os.path.join(race_path, neg_label))) > 1
+                        ):
+                            break
 
                     neg_path = os.path.join(race_path, neg_label)
                     neg_path = os.path.join(
@@ -62,8 +65,6 @@ class YtDataset(Dataset):
                         }
                     )
 
-
-
     def __len__(self):
         return len(self.dogs)
 
@@ -75,7 +76,6 @@ class YtDataset(Dataset):
 
         if self.transform:
             return (
-                dog["label"],
                 self.transform(anchor),
                 self.transform(positive),
                 self.transform(negative),
